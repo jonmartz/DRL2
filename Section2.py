@@ -2,9 +2,10 @@ import gym
 import numpy as np
 import tensorflow as tf
 from Models import PolicyNetwork, BaselineNetwork
+from time import time
 
 
-def train_agent():
+def train_agent(max_episodes=1000, stop_at_solved=False, verbose=True):
     """
     Train the agent with the Advantage Actor-Critic algorithm.
     :return: list 100 ep. moving average for each episode
@@ -16,7 +17,6 @@ def train_agent():
     state_size = 4
     action_size = env.action_space.n
 
-    max_episodes = 5000
     max_steps = 501
     discount_factor = 0.99
     policy_learning_rate = 0.0004
@@ -30,16 +30,22 @@ def train_agent():
     policy_net = PolicyNetwork(state_size, action_size, policy_learning_rate)
     baseline_net = BaselineNetwork(state_size, baseline_learning_rate)
 
+    time_to_solve = None
+    start_time = int(round(time() * 1000))
+
     # Start training the agent with REINFORCE algorithm
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         solved = False
         episode_rewards = np.zeros(max_episodes)
         episode_baseline_losses = np.zeros(max_episodes)
+        episode_policy_losses = np.zeros(max_episodes)
         average_rewards = 0.0
         avg_baseline_loss = 0.0
 
         average_rewards_total = []
+        average_policy_losses_total = []
+        average_baseline_losses_total = []
 
         for episode in range(max_episodes):
             state = env.reset()
@@ -79,28 +85,38 @@ def train_agent():
                 _, policy_loss = sess.run([policy_net.optimizer, policy_net.loss], feed_dict)
 
                 episode_rewards[episode] += reward
+                episode_policy_losses[episode] += policy_loss
                 episode_baseline_losses[episode] += baseline_loss
 
                 if done:
                     average_rewards_total.append(np.mean(episode_rewards[max(0, episode - 99):episode + 1]))
+                    average_policy_losses_total.append(np.mean(episode_policy_losses[max(0, episode - 99):episode + 1]))
+                    average_baseline_losses_total.append(np.mean(episode_baseline_losses[max(0, episode - 99):episode + 1]))
                     if episode > 98:
                         average_rewards = np.mean(episode_rewards[(episode - 99):episode + 1])
                         avg_baseline_loss = np.mean(episode_baseline_losses[(episode - 99):episode + 1])
                     if average_rewards > 475:
-                        print(' Solved at episode: ' + str(episode))
+                        # print(' Solved at episode: ' + str(episode))
                         solved = True
                     break
                 state = next_state
 
-            print("ep: %d \t reward: %.1f \t(100mean: %.1f) \tbaseline_loss: %.2f \t(100mean: %.1f)" % (
-                episode, episode_rewards[episode], average_rewards, episode_baseline_losses[episode], avg_baseline_loss))
+            if verbose:
+                print("\tep: %d \t reward: %.1f \t(100mean: %.1f) \tbaseline_loss: %.2f \t(100mean: %.1f)" % (
+                    episode, episode_rewards[episode], average_rewards, episode_baseline_losses[episode], avg_baseline_loss))
 
             if solved:
-                break
+                if time_to_solve is None:
+                    time_to_solve = (round(time() * 1000) - start_time) / 1000
+                if stop_at_solved:
+                    break
 
     # plt.plot(range(1, len(average_rewards_total) + 1), average_rewards_total)
     # plt.xlabel('episode')
     # plt.ylabel('last 100 eps. average reward')
     # plt.show()
 
-    return average_rewards_total
+    if time_to_solve is None:
+        time_to_solve = (round(time() * 1000) - start_time) / 1000
+
+    return average_rewards_total, average_policy_losses_total, average_baseline_losses_total, time_to_solve
